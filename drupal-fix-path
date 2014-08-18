@@ -1,0 +1,85 @@
+#!/bin/bash
+
+if [ $(id -u) != 0 ]; then
+        echo "This script must be run as root."
+        exit 1
+fi
+
+root=${1%/}
+user=${2}
+group="${3:-nginx}"
+
+# Help menu
+print_help() {
+cat <<-HELP
+
+This script is used to fix permissions of a drupal installation
+you need to provide the following arguments:
+
+1) root to your drupal installation
+2) Username of the user that you want to give files/directories ownership
+3) HTTPD group name (defaults to www-data for apache)
+
+Usage: (sudo) bash ${0##*/} --root=ROOT --user=USER --group=GROUP
+
+Example: (sudo) bash ${0##*/} --root=/usr/local/apache2/htdocs --user=john --group=nginx
+
+HELP
+exit 0
+}
+
+# Parse Command Line Arguments
+while [ $# -gt 0 ]; do
+        case "$1" in
+                --root=*) 
+			root="${1#*=}"
+			;;
+		--user=*)
+			user="${1#*=}"
+			;;
+		--group=*)
+			group="${1#*=}"
+			;;
+		--help) print_help;;
+		*)
+			echo "Invalid argument, run --help for valid arguments";
+			exit 1
+	esac
+	shift
+done
+
+if [ -z "${root}" ] || [ ! -d "${root}/sites" ] || [ ! -f "${root}/modules/system/system.module" ]; then
+	echo "Please provide a valid drupal root"
+	print_help
+	exit 1
+fi
+
+if [ -z "${user}" ] || [ $(id -un ${user} 2> /dev/null) != "${user}" ]; then
+	echo "Please provide a valid user"
+	print_help
+	exit 1
+fi
+
+
+cd $root
+echo -e "Changing ownership of all contents of \"${root}\" :\n user => \"${user}\" \t group => \"${group}\"\n"
+chown -R ${user}:${group} .
+
+echo "Changing permissions of all directories inside \"${root}\" to \"rwxr-x---\"..."
+find . -type d -exec chmod u=rwx,g=rx,o= '{}' \;
+
+echo -e "Changing permissions of all files inside \"${root}\" to \"rw-r-----\"...\n"
+find . -type f -exec chmod u=rw,g=r,o= '{}' \;
+
+echo "Changing permissions of \"files\" directories in \"${root}/sites\" to \"rwxrwx---\"..."
+cd ${root}/sites
+find . -type d -name files -exec chmod ug=rwx,o= '{}' \;
+echo "Changing permissions of all files inside all \"files\" directories in \"${root}/sites\" to \"rw-rw----\"..."
+echo "Changing permissions of all directories inside all \"files\" directories in \"${root}/sites\" to \"rwxrwx---\"..."
+
+for x in ./*/files; do
+	find ${x} -type d -exec chmod ug=rwx,o= '{}' \;
+	find ${x} -type f -exec chmod ug=rw,o= '{}' \;
+done
+
+echo "Done settings proper permissions on files and directories"
